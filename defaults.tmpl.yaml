@@ -1,2 +1,4 @@
 greetingname: YOURNAMEHERE
 flickrkey: YOURAPIKEYHERE
+gallery_ids:
+  - BIGLONG-NUMBERHERE
