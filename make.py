@@ -1,12 +1,14 @@
 import json
 import requests
-from string import Template
 import yaml
+from optparse import OptionParser
+from jinja2 import Template, Environment, PackageLoader, select_autoescape
 
-f = file('defaults.yaml', 'r')
+f = open('defaults.yaml', 'r')
 defaults = yaml.load(f)
+f.close()
 
-# 1. Transform the quotes.txt file into JSON
+# Transform the quotes.txt file into JSON
 # 
 # The quotes text file is in the format:
 # 
@@ -26,22 +28,27 @@ defaults = yaml.load(f)
 # 
 # Note: the " marks here are actually “ (\u200) and ” (\u201), not normal quote marks.
 # This is from copy/pasting quote history.
+def parse_quotes_as_json():
+    quotes = []
 
-print("Writing out quotes.js file ... ")
+    print("Writing out quotes.js file ... ")
 
-quotes = []
+    f = open("quotes.txt", "r")
+    for line in f:
+        [q, a] = line.replace('“','',1).replace('\n','').split('”',1)
+        quotes.append({'quote': q, 'author': a})
+    f.close()
+    quotes = json.dumps(quotes)
 
-f = open("quotes.txt", "r")
-for line in f:
-    [q, a] = line.replace('“','',1).replace('\n','').split('”',1)
-    quotes.append({'quote': q, 'author': a})
+    f = open("static/quotes.js", "w")
+    f.write(quotes)
+    f.close()
 
-f = open("static/quotes.js", "w")
-f.write("var quotes = "+json.dumps(quotes)+";")
+    print(" done.")
 
-print(" done.")
+    return quotes
 
-# 2. Scrape a list of image URLs (+ credits) from specific galleries on flickr, convert into more JSON.
+# Scrape a list of image URLs (+ credits) from specific galleries on flickr, convert into more JSON.
 #
 # We're looking to take a list of gallery names, convert them into gallery_ids to then get a list of 
 # images.
@@ -62,47 +69,97 @@ print(" done.")
 # https://farm{farm-id}.staticflickr.com/{server-id}/{id}_{o-secret}_o.(jpg|gif|png)
 #
 # We want a nice big image, so aiming for a "k" (2048 on biggest side) size image. 
+def get_image_info_as_json(api_key, gallery_id):
+    print("Gathering gallery information ...")
 
-print("Gathering gallery information ...")
+    gallery_names = []
+    images = []
 
-gallery_names = []
-images = []
+    url = "https://api.flickr.com/services/rest/?method=flickr.galleries.getPhotos&api_key="+api_key+"&gallery_id="+gallery_id+"&format=json&nojsoncallback=1&extras=owner_name"
+    r = requests.get(url)
 
-api_key = defaults['flickrkey']
-momentum_feed_4 = "152954026-72157680317429891"
-gallery_id = momentum_feed_4
+    if (r.status_code != requests.codes.ok):
+        print(" failed.")
+        sys.exit()
 
-url = "https://api.flickr.com/services/rest/?method=flickr.galleries.getPhotos&api_key="+api_key+"&gallery_id="+gallery_id+"&format=json&nojsoncallback=1&extras=owner_name"
-r = requests.get(url)
+    image_list = (r.json())['photos']['photo']
+    image_count = len(image_list)
 
-if (r.status_code != requests.codes.ok):
-    print(" failed.")
-    sys.exit()
+    print(f"Found {image_count} images in the gallery.")
+    print("Getting image information ... ")
 
-image_list = (r.json())['photos']['photo']
-image_count = len(image_list)
+    image_idx = 1
 
-print(f"Found {image_count} images in the gallery.")
-print("Getting image information ... ")
+    for image in image_list:
+        print(f"{image_idx} of {image_count}")
 
-image_idx = 1
+        info = requests.get("https://api.flickr.com/services/rest/?method=flickr.photos.getSizes&api_key="+api_key+"&photo_id="+image['id']+"&format=json&nojsoncallback=1")
 
-for image in image_list:
-    print(f"{image_idx} of {image_count}")
+        size_list = (info.json())['sizes']['size']
+        largest_image_url = size_list[len(size_list)-2]['source'] # Second to last is the biggest that's not an original
 
-    info = requests.get("https://api.flickr.com/services/rest/?method=flickr.photos.getSizes&api_key="+api_key+"&photo_id="+image['id']+"&format=json&nojsoncallback=1")
+        images.append({'url': largest_image_url, 'title': image['title'], 'owner': image['ownername'], 'link': "https://www.flickr.com/photos/"+image['owner']})
 
-    size_list = (info.json())['sizes']['size']
-    largest_image_url = size_list[len(size_list)-2]['source'] # Second to last is the biggest that's not an original
+        image_idx += 1
 
-    images.append({'url': largest_image_url, 'title': image['title'], 'owner': image['ownername'], 'link': "https://www.flickr.com/photos/"+image['owner']})
+    print(" done.")
+    print("Writing images.js ...")
 
-    image_idx += 1
+    images = json.dumps(images)
 
-print(" done.")
-print("Writing images.js ...")
+    f = open("static/images.js", "w")
+    f.write(images)
+    f.close()
 
-f = open("static/images.js", "w")
-f.write("var images = "+json.dumps(images)+";")
+    print(" done.")
 
-print(" done.")
+    return images
+#
+#
+#
+#
+def parse_template(quotes, images, greetingname, ):
+    print("Writing impulse.html ...")
+
+    env = Environment(
+        loader=PackageLoader('__main__', '.'),
+        autoescape=select_autoescape(enabled_extensions=[], disabled_extensions=['html','xml'], default_for_string=False, default=False)
+    )
+
+    template = env.get_template('impulse.tmpl.html')
+    page = template.render(quotes=quotes, images=images, greetingname=greetingname)
+    f = open("static/impulse.html", "w")
+    for line in page:
+        f.write(line)
+    f.close()
+
+    print(" done.")
+
+
+parser = OptionParser()
+# Defaults: action="store", type="string", 
+parser.add_option("-a", "--all", action="store_true", dest="RUN_ALL", default=False, help="Actually run everything. Without this, it's just a dry run.")
+parser.add_option("-i", action="store_true", dest="RUN_IMAGES", default=False, help="Run the image gallery scraper, to create a intermediary images.js file.")
+parser.add_option("-q", action="store_true", dest="RUN_QUOTES", default=False, help="Run the quote parser, to create a intermediary quotes.js file.")
+parser.add_option("-t", action="store_true", dest="RUN_TEMPLATE", default=False, help="Run the templating engine, to make an impulse.html file from the intermediary files.")
+(options, args) = parser.parse_args()
+
+if (options.RUN_ALL):
+    quotes = parse_quotes_as_json()
+    images = get_image_info_as_json(defaults['flickrkey'], "152954026-72157680317429891")
+    parse_template(quotes, images, defaults['greetingname'])
+
+if (options.RUN_QUOTES):
+    parse_quotes_as_json()
+
+if (options.RUN_IMAGES):
+    get_image_info_as_json(defaults['flickrkey'], "152954026-72157680317429891")
+
+if (options.RUN_TEMPLATE):
+    f = open("static/images.js", "r")
+    images = f.read()
+
+    f = open("static/quotes.js", "r")
+    quotes = f.read()
+
+    parse_template(quotes, images, defaults['greetingname'])

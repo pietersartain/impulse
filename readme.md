@@ -15,6 +15,7 @@ Python dependencies:
    * json
    * Request
    * PyYAML
+   * Jinja2
 
 To create the static site:
 
@@ -22,3 +23,4 @@ To create the static site:
 2. Run `python3 make.py` to generate the static file `impulse.html`.
 3. Copy `impulse.html` somewhere online and set your browser's home page to it.
 
+In order to get gallery IDs from Flickr, paste the gallery link into [lookupGallery API explorer](https://www.flickr.com/services/api/explore/flickr.urls.lookupGallery) and look for the "id" part of the gallery tag.
