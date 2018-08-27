@@ -24,3 +24,6 @@ To create the static site:
 3. Copy `impulse.html` somewhere online and set your browser's home page to it.
 
 In order to get gallery IDs from Flickr, paste the gallery link into [lookupGallery API explorer](https://www.flickr.com/services/api/explore/flickr.urls.lookupGallery) and look for the "id" part of the gallery tag.
+
+References:
+https://idratherbewriting.com/learnapidoc/docapis_flickr_example.html
